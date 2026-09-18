@@ -21,7 +21,9 @@ dependencies = [
 
 [project.optional-dependencies]
 cv = [
-    "rembg",
+    # rembg 2.x 的默认模型从 u2net(176MB) 换成了 bria-rmbg-2.0(1.02GB)，
+    # 锁版本避免重建镜像时静默跳到另一个默认大模型。
+    "rembg==2.0.81",
     "onnxruntime",
     "opencv-python-headless",
     "rapidocr-onnxruntime",

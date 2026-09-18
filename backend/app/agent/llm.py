@@ -30,15 +30,29 @@ def _schema_of(spec: ToolSpec) -> dict:
 
 @lru_cache
 def planner():
-    """绑定全部已注册工具的规划模型。工具增减无需改动此处。"""
+    """绑定全部已注册工具的规划模型。工具增减无需改动此处。
+
+    base_url 支持任意 OpenAI 兼容网关：配置 PLANNER_BASE_URL 后原样使用
+    （需自带 /v1 前缀），否则回退百炼的 compatible-mode 路径。
+    API key 同理：PLANNER_API_KEY 优先，缺失再退回 DASHSCOPE_API_KEY。
+    """
     settings = get_settings()
-    if not settings.dashscope_api_key:
-        raise PlannerUnavailable("未配置 DASHSCOPE_API_KEY，对话指令不可用")
+    api_key = settings.planner_api_key or settings.dashscope_api_key
+    if not api_key:
+        raise PlannerUnavailable(
+            "未配置 PLANNER_API_KEY / DASHSCOPE_API_KEY，对话指令不可用"
+        )
+
+    base_url = settings.planner_base_url or (
+        f"{settings.dashscope_base_url}{_COMPATIBLE_PATH}"
+    )
 
     model = ChatOpenAI(
         model=settings.planner_model,
-        api_key=settings.dashscope_api_key,
-        base_url=f"{settings.dashscope_base_url}{_COMPATIBLE_PATH}",
+        api_key=api_key,
+        base_url=base_url,
         temperature=0,
+        timeout=settings.planner_timeout,
+        max_retries=settings.planner_max_retries,
     )
     return model.bind_tools([_schema_of(spec) for spec in SPECS])

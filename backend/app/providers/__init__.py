@@ -16,6 +16,10 @@ def get_image_provider() -> ImageProvider:
         from app.providers.dashscope import DashScopeImageProvider
 
         return DashScopeImageProvider()
+    if name == "openai":
+        from app.providers.openai_images import OpenAIImagesProvider
+
+        return OpenAIImagesProvider()
 
     raise ProviderError(f"未知的 IMAGE_PROVIDER：{name}")
 

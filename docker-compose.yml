@@ -32,7 +32,9 @@ services:
       retries: 10
 
   minio:
-    image: minio/minio:latest
+    # MinIO 已下架 Docker Hub 上的社区镜像（minio/minio 返回 pull access denied），
+    # 官方现存分发渠道为 Quay，故改为 quay.io 并锁定版本，避免 latest 漂移。
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     restart: unless-stopped
     command: server /data --console-address ":9001"
     ports:
@@ -63,8 +65,8 @@ services:
       REDIS_URL: redis://redis:6379
       S3_ENDPOINT: http://minio:9000
       S3_PUBLIC_ENDPOINT: http://localhost:7313
-    volumes:
-      - cv_models:/root/.u2net
+      # CV 模型已在镜像构建期下载到 /opt/cv_models（见 Dockerfile），此处不再挂卷：
+      # 挂一个空卷会把镜像里的模型遮挡掉，反而触发运行时重新下载。
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -81,8 +83,8 @@ services:
       REDIS_URL: redis://redis:6379
       S3_ENDPOINT: http://minio:9000
       S3_PUBLIC_ENDPOINT: http://localhost:7313
-    volumes:
-      - cv_models:/root/.u2net
+      # CV 模型已在镜像构建期下载到 /opt/cv_models（见 Dockerfile），此处不再挂卷：
+      # 挂一个空卷会把镜像里的模型遮挡掉，反而触发运行时重新下载。
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -92,4 +94,3 @@ volumes:
   pg_data:
   redis_data:
   minio_data:
-  cv_models:

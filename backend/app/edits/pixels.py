@@ -1,9 +1,27 @@
 import io
 import math
+import threading
 
 from PIL import Image, ImageChops, ImageEnhance, ImageFilter
 
 _CORNER_TOLERANCE = 28
+# rembg 2.x 默认会话是 bria-rmbg-2.0（约 1GB），本机网络下载要半小时、
+# 加载又要额外 1GB+ 内存；这里固定用 u2net（176MB），并在进程内复用会话。
+_MATTING_MODEL = "u2net"
+_matting_session = None
+_session_lock = threading.Lock()
+
+
+def get_matting_session():
+    """懒加载扣图会话，加锁保证并发调用只下载/加载一次。"""
+    global _matting_session
+    if _matting_session is None:
+        with _session_lock:
+            if _matting_session is None:
+                from rembg import new_session
+
+                _matting_session = new_session(_MATTING_MODEL)
+    return _matting_session
 
 
 def remove_background(data: bytes) -> bytes:
@@ -18,7 +36,7 @@ def remove_background(data: bytes) -> bytes:
             if provider == "rembg":
                 raise
         else:
-            return bytes(remove(data))
+            return bytes(remove(data, session=get_matting_session()))
     return _corner_matte(data)
 
 

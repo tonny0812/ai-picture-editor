@@ -30,14 +30,31 @@ class Settings(BaseSettings):
     jwt_secret: str = "dev-only-secret-please-change-in-production"
     jwt_ttl_hours: int = 24
 
-    # image provider: mock | dashscope
+    # image provider: mock | dashscope | openai
     image_provider: str = "mock"
     dashscope_api_key: str = ""
     # 业务空间专属域名为 https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com
     dashscope_base_url: str = "https://dashscope.aliyuncs.com"
     text_to_image_model: str = "qwen-image-3.0-pro"
     image_edit_model: str = "qwen-image-edit-max"
+
+    # ---- 对话规划模型（OpenAI 兼容，自建/聚合网关）----
+    # 留空则回退到百炼 dashscope_base_url + /compatible-mode/v1
+    planner_base_url: str = ""
+    planner_api_key: str = ""
     planner_model: str = "qwen-plus"
+    planner_timeout: float = 60.0
+    planner_max_retries: int = 2
+
+    # ---- 图像模型（OpenAI 兼容 images API）----
+    # 留空则复用 planner_base_url / planner_api_key
+    images_base_url: str = ""
+    images_api_key: str = ""
+    images_model: str = ""
+    # 网关接受的尺寸档位，逗号分隔，如 "1024x1024,1536x1024,1024x1536"。
+    # 配置后按最近比例选档、下载后中心裁切回目标尺寸；留空则按请求尺寸直传。
+    images_sizes: str = ""
+
     # auto：有 rembg 用 rembg，否则四角抠图；测试强制 corner 以免下载模型
     matting_provider: str = "auto"
     # auto：有 rapidocr 则识别文字层；none 跳过；测试强制 none
