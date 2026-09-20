@@ -5,7 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import storage
 from app.models.asset import AssetKind, AssetSource
 from app.models.tool_run import ToolRun
-from app.providers import GenerateRequest, ProviderError, get_image_provider
+from app.providers import GenerateRequest, ProviderError
+from app.services.llm_config import provider_for
 from app.ratios import Ratio, size_of
 from app.services import assets, runs
 
@@ -40,7 +41,7 @@ async def execute(session: AsyncSession, run: ToolRun) -> dict:
         references=await _references(session, run),
     )
 
-    images = await get_image_provider().generate(request, on_progress)
+    images = await (await provider_for(session, run.user_id)).generate(request, on_progress)
 
     await runs.report(session, run, 90, "保存候选图")
     created = [

@@ -17,6 +17,7 @@ dependencies = [
     "bcrypt",
     "pyjwt",
     "httpx",
+    "cryptography",
 ]
 
 [project.optional-dependencies]

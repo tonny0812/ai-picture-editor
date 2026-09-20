@@ -6,7 +6,8 @@ from app.edits.split import EmptyCut, alpha_mask
 from app.layers import Layer, LayerDocument
 from app.models.asset import AssetKind
 from app.models.tool_run import ToolRun
-from app.providers import EditRequest, get_image_provider
+from app.providers import EditRequest
+from app.services.llm_config import provider_for
 from app.services import runs, selections
 from app.tools.base import HIDDEN_MASK, LayerRef, MaskRef, ToolSpec
 from app.tools.context import ToolError, document_of, require_session
@@ -60,7 +61,7 @@ async def _edit_region(session: AsyncSession, run: ToolRun, *, scoped: str, whol
     local_mask = _region(source, mask, layer, (document.width, document.height))
     await runs.report(session, run, 40, "局部生成")
     edited = (
-        await get_image_provider().edit(
+        await (await provider_for(session, run.user_id)).edit(
             EditRequest(prompt=whole if mask is None else scoped, image=source),
             on_progress=lambda progress, stage: runs.report(session, run, progress, stage),
         )

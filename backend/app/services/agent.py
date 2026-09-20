@@ -11,6 +11,7 @@ from app.layers import Layer, LayerDocument, LayerKind
 from app.models import AgentRun, EditSession, ToolRun
 from app.models.tool_run import RunStatus
 from app.services import assets, runs, selections, tools
+from app.services import llm_config as llm_config_service
 from app.tools import spec_of
 
 logger = logging.getLogger(__name__)
@@ -69,7 +70,8 @@ async def respond(session: AsyncSession, record: EditSession, goal: str) -> Agen
     reply, steps, error = "", [], None
 
     try:
-        reply, steps = await agent.run(goal, await describe(session, record))
+        config = await llm_config_service.resolve(session, record.user_id)
+        reply, steps = await agent.run(goal, await describe(session, record), config)
         steps = await _pin_selection(session, record, steps)
     except agent.PlannerUnavailable as exc:
         error = str(exc)

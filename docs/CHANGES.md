@@ -108,3 +108,85 @@ images_sizes: str = ""          # 如 "1024x1024,1536x1024,1024x1536"
 - **P1**：`needs_approval` 审批机制全项目从未置 True，等于空跑；
 - **P1**：`worker.py` 的 `job_timeout=300` 与 DashScope 轮询超时 300s 打平，长任务必被 ARQ 杀掉；
 - 完整 33 条见工作区 `ai-picture-editor-代码优化方案.html`（含路线图与验收标准）。
+
+## 六、LLM 接口页面化配置 · 批次①角色地基（✅ 2026-09-20 已实施）
+
+按 `LLM-CONFIG-DESIGN.md` §8 批次①交付，全部测试与线上验证通过。
+
+**改动清单**：
+
+| 类型 | 文件 | 内容 |
+|---|---|---|
+| 改 | `backend/app/models/user.py` | 新增 `Role` 枚举（user/admin）与 `users.role` 列 |
+| 增 | `migrations/versions/20260920_1716_users_role.py` | 加列迁移，存量用户回填 `user` |
+| 改 | `backend/app/deps.py` | `require_admin` 依赖 + `AdminUser` 类型（403 闸门） |
+| 增 | `backend/app/cli.py` | `python -m app.cli promote/demote/list` 运维命令 |
+| 增 | `backend/app/routers/admin.py` | `GET /api/admin/users`、`PATCH /api/admin/users/{id}/role` |
+| 增 | `backend/app/schemas/admin.py` | `AdminUserOut` / `RolePatchIn` |
+| 改 | `backend/app/config.py` | `ADMIN_USERNAMES` 白名单（逗号分隔，注册时精确命中即 admin） |
+| 改 | `backend/app/schemas/auth.py` | `UserOut` 增加 `role`（`/api/auth/me` 可见，前端守卫用） |
+| 改 | `dev.sh` | 新增 `promote` / `demote` / `users` 三个命令 |
+| 增 | `backend/tests/test_admin_roles.py` | 18 项权限矩阵测试 |
+
+**安全约束（已实现并测试）**：
+- `PATCH role` 禁止操作自己（400）——防止最后一个管理员自锁；CLI `demote` 拒绝降级唯一管理员；
+- 白名单是精确匹配（大小写/空白都不算命中）；
+- 角色每请求从数据库读取：CLI 提权后**旧会话立即生效**，无需重新登录。
+
+**验证**：185 项单测全绿（167 + 18）、ruff 通过、迁移 `fa850313b768 → b7d24f0a91ce` 成功、23 项冒烟全绿；
+线上实测：普通用户访问 admin 接口 403 → `./dev.sh promote` → 同一会话 200 → 改自己角色 400。
+
+**给当前部署提权管理员**：`./dev.sh promote <用户名>`（库里现有账号见 `./dev.sh users`）。
+
+---
+
+## 四、批次②③ — LLM 接口页面化配置（2026-09-20）
+
+### 1. 配置模型：全局默认 + 用户覆盖三层合并
+
+生效顺序：**用户覆盖 > 全局配置 > `.env` 兜底**。管理员在管理页配全局默认值，普通用户可在设置页覆盖自己的
+（如换成本人网关密钥），清除个人覆盖即回到全局默认。
+
+| 类型 | 文件 | 内容 |
+|---|---|---|
+| 增 | `backend/app/llm_config.py` | `ResolvedLlmConfig` 数据类 + 指纹计算 + `mask_secret` |
+| 增 | `backend/app/services/crypto.py` | Fernet 对称加密（密钥由 `JWT_SECRET` 派生，未配时兜底） |
+| 增 | `backend/app/models/llm_config.py` | `LlmConfig`（scope=global/user）+ `LlmConfigAudit` 审计表 |
+| 增 | `migrations/versions/20260920_2001_llm_configs.py` | 建表迁移（含 `lock_image_provider` 列） |
+| 增 | `backend/app/services/llm_config.py` | 解析服务：三层合并、TTL 缓存、SSRF 校验、审计、连接测试 |
+
+- **热生效**：provider / planner 按配置指纹缓存，保存后立即失效重建，**不用重启容器**；
+- **密钥安全**：API Key 落库前 Fernet 加密，接口只回 `sk-***abcd` 掩码，永不回明文；
+- **SSRF 防护**：`base_url` 写入时校验，拒绝内网/回环/link-local 地址；
+- **worker 隔离**：异步任务载荷只带 `user_id`，到 worker 内再解析配置，避免跨用户串 key。
+
+### 2. 强制锁（lock_image_provider）
+
+全局开关，默认关闭。开启后**禁止用户覆盖 `image_provider`**：防止普通用户把真模型切成 `mock`
+（占位假图）绕开额度或被假图误导。前端表现为下拉框禁用 + 明确提示。
+
+### 3. 接口与页面
+
+| 类型 | 文件 | 内容 |
+|---|---|---|
+| 增 | `backend/app/routers/me.py` | `GET/PUT/DELETE /api/me/llm-config`、`POST /api/me/llm-config/test` |
+| 改 | `backend/app/routers/admin.py` | 全局配置读写/测试 + 审计日志查询（均 403 闸门） |
+| 增 | `backend/app/schemas/llm_config.py` | 读写与测试响应的 Pydantic 模型 |
+| 增 | `frontend/src/api/llmConfig.ts` | 前端 API 封装；`api/client.ts` 补 `put` 方法 |
+| 增 | `frontend/src/components/LlmConfigForm.tsx` | 用户/全局共用表单组件（含来源标记、只写密钥、测试连接） |
+| 增 | `frontend/src/pages/SettingsPage.tsx` | 个人设置页（覆盖 + 清除 + 测试） |
+| 增 | `frontend/src/pages/AdminLlmConfigPage.tsx` | 管理员全局配置页（含强制锁 + 审计流水） |
+| 增 | `frontend/src/layouts/RequireAdmin.tsx` | 路由级 admin 守卫 |
+| 改 | `frontend/src/App.tsx` / `WorkbenchLayout.tsx` | 新增 `/settings`、`/admin/llm-config` 路由与导航入口 |
+| 增 | `backend/tests/test_llm_config.py` | 解析顺序/强制锁/加密/SSRF/权限测试 |
+
+访问路径：普通用户 `http://localhost:7302/settings`；管理员额外有 `/admin/llm-config`
+（导航入口仅 admin 可见）。
+
+### 4. 已知问题与验证状态
+
+- 前端 `LlmConfigForm` 的 `mutationFn` 曾因返回联合类型（`MeLlmConfig | EffectiveView`）导致
+  `tsc -b` 失败，已通过显式返回类型注解修复；
+- 本批次的**镜像重建受网络影响较慢**（`uv sync` 拉 `onnxruntime` / `torch` 等大包），
+  迁移与全量单测将在构建完成后补跑：预期 `alembic upgrade head` 应用
+  `b7d24f0a91ce → 20260920_2001_llm_configs`，随后 `./dev.sh test` 与 `./dev.sh lint`。

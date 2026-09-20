@@ -5,7 +5,7 @@ import pytest
 from langchain_core.messages import AIMessage
 
 from app.agent import graph
-from app.agent.llm import planner
+from app.agent.llm import get_planner as planner
 from app.config import get_settings
 from app.tasks.tools import run_tool
 from tests.canvas import apply, error_of, layers, scene, select, settle
@@ -27,7 +27,7 @@ class FakePlanner:
 def fake_planner(monkeypatch):
     def install(message: AIMessage) -> FakePlanner:
         fake = FakePlanner(message)
-        monkeypatch.setattr(graph, "planner", lambda: fake)
+        monkeypatch.setattr(graph, "get_planner", lambda config: fake)
         return fake
 
     return install
@@ -205,6 +205,7 @@ async def test_conversation_is_returned_in_order(signed_in: httpx.AsyncClient, f
 async def test_missing_api_key_fails_the_turn(signed_in: httpx.AsyncClient, monkeypatch):
     """模型不可用时必须明确失败，不能伪造成功结果。"""
     settings = get_settings()
+    monkeypatch.setattr(settings, "planner_api_key", "")
     monkeypatch.setattr(settings, "dashscope_api_key", "")
     planner.cache_clear()
     session_id = (await open_session(signed_in))["id"]
@@ -213,7 +214,7 @@ async def test_missing_api_key_fails_the_turn(signed_in: httpx.AsyncClient, monk
 
     planner.cache_clear()
     assert turn["status"] == "failed"
-    assert "DASHSCOPE_API_KEY" in turn["error"]
+    assert "API Key" in turn["error"]
 
 
 async def test_blank_message_is_rejected(signed_in: httpx.AsyncClient):

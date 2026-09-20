@@ -13,7 +13,8 @@ from app.edits.pixels import adjust, encode, letterbox, remove_background
 from app.models import Asset, ToolRun
 from app.models.asset import AssetKind, AssetSource
 from app.models.tool_run import RunStatus
-from app.providers import EditRequest, get_image_provider
+from app.providers import EditRequest
+from app.services.llm_config import provider_for
 from app.ratios import DELIVERY_RATIOS, Ratio, cover_size, size_of
 from app.schemas.asset import AssetOut
 from app.schemas.batch import BatchIn, BatchItemOut, BatchOpIn, BatchOut
@@ -43,7 +44,8 @@ def _unique_ratios(values: list[Ratio]) -> list[Ratio]:
     return seen
 
 
-async def apply_op(data: bytes, operation: BatchOpIn) -> list[bytes]:
+async def apply_op(data: bytes, operation: BatchOpIn, provider) -> list[bytes]:
+    """provider 由调用方按任务归属用户解析一次后传入——批量每张图共用同一套配置。"""
     if operation.tool == "remove_background":
         return [await asyncio.to_thread(remove_background, data)]
     if operation.tool == "adjust_image":
@@ -53,10 +55,10 @@ async def apply_op(data: bytes, operation: BatchOpIn) -> list[bytes]:
         return [await asyncio.to_thread(lambda: adjust(data, **values))]
     if operation.tool == "upscale_image":
         scale = UpscaleImageIn.model_validate(operation.params).scale
-        return [await get_image_provider().upscale(data, scale)]
+        return [await provider.upscale(data, scale)]
     if operation.tool == "replace_background":
         parsed = ReplaceBackgroundIn.model_validate(operation.params)
-        return await get_image_provider().edit(
+        return await provider.edit(
             EditRequest(
                 prompt=f"只替换背景，保持主体、光线和边缘不变。新背景：{parsed.prompt}",
                 image=data,
@@ -68,7 +70,7 @@ async def apply_op(data: bytes, operation: BatchOpIn) -> list[bytes]:
         parsed = ExpandCanvasIn.model_validate(operation.params)
         meta = probe(data)
         width, height = cover_size(meta.width, meta.height, parsed.ratio)
-        return await get_image_provider().edit(
+        return await provider.edit(
             EditRequest(prompt=parsed.prompt, image=data, width=width, height=height)
         )
     if operation.tool == "prepare_delivery_sizes":
@@ -92,12 +94,13 @@ async def _store(session: AsyncSession, user_id: uuid.UUID, images: list[bytes])
 async def process_asset(
     session: AsyncSession, user_id: uuid.UUID, source: Asset, payload: BatchIn
 ) -> list[Asset]:
+    provider = await provider_for(session, user_id)
     data = await storage.get(source.storage_key)
     frames = [data]
     for operation in payload.operations:
         next_frames: list[bytes] = []
         for frame in frames:
-            next_frames.extend(await apply_op(frame, operation))
+            next_frames.extend(await apply_op(frame, operation, provider))
         frames = next_frames
     encoded: list[bytes] = []
     for frame in frames:

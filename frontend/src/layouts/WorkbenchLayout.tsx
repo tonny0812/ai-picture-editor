@@ -9,6 +9,11 @@ const NAV_ITEMS = [
   { to: '/editor', label: '编辑', icon: 'M4 20h4L20 8l-4-4L4 16v4z' },
   { to: '/marketing', label: '导出', icon: 'M12 3v12m0 0-4-4m4 4 4-4M5 21h14' },
   { to: '/batch', label: '批量', icon: 'M4 6h16M4 12h16M4 18h10' },
+  { to: '/settings', label: '设置', icon: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z' },
+]
+
+const ADMIN_NAV_ITEMS = [
+  { to: '/admin/llm-config', label: '管理', icon: 'M12 2 3 6v6c0 5.25 3.75 10.24 9 11.5 5.25-1.26 9-6.25 9-11.5V6l-9-4zM9 12l2 2 4-4' },
 ]
 
 function NavIcon({ path }: { path: string }) {
@@ -39,7 +44,7 @@ export default function WorkbenchLayout() {
           </BrandMark>
 
           <ul className="flex flex-1 flex-col gap-1 px-2">
-            {NAV_ITEMS.map((item) => (
+            {(user?.role === 'admin' ? [...NAV_ITEMS, ...ADMIN_NAV_ITEMS] : NAV_ITEMS).map((item) => (
               <li key={item.to}>
                 <NavLink
                   to={item.to}

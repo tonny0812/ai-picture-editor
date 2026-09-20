@@ -2,6 +2,8 @@ import uuid
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.models import Role
+
 
 class Credentials(BaseModel):
     username: str = Field(min_length=3, max_length=32)
@@ -19,5 +21,6 @@ class Credentials(BaseModel):
 class UserOut(BaseModel):
     id: uuid.UUID
     username: str
+    role: Role
 
     model_config = {"from_attributes": True}

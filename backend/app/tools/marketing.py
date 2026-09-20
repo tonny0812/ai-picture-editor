@@ -6,7 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.edits.pixels import letterbox, resize_to
 from app.models.asset import AssetKind, AssetSource
 from app.models.tool_run import ToolRun
-from app.providers import EditRequest, get_image_provider
+from app.providers import EditRequest
+from app.services.llm_config import provider_for
 from app.ratios import DELIVERY_RATIOS, Ratio, size_of
 from app.services import assets, runs
 from app.tools.base import ToolSpec
@@ -105,7 +106,7 @@ async def generate_marketing_exec(session: AsyncSession, run: ToolRun) -> dict:
     await runs.report(session, run, 15, "读取画布")
     source = await flatten_session(session, record)
     await runs.report(session, run, 30, "生成营销图")
-    images = await get_image_provider().edit(
+    images = await (await provider_for(session, run.user_id)).edit(
         EditRequest(
             prompt=_prompt_of(kind, run.params.get("caption")),
             image=source,

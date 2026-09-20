@@ -1,6 +1,7 @@
 import { api } from '@/api/client'
 
-export type User = { id: string; username: string }
+export type Role = 'user' | 'admin'
+export type User = { id: string; username: string; role: Role }
 export type Credentials = { username: string; password: string }
 
 export const authApi = {

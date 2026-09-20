@@ -50,6 +50,13 @@ case "${1:-help}" in
   ps)     "${DC[@]}" ps ;;
   logs)   "${DC[@]}" logs -f --tail=120 "${2:-app}" ;;
   migrate) "${DC[@]}" exec -T app alembic upgrade head ;;
+  promote)
+    "${DC[@]}" exec -T app python -m app.cli promote "${2:?用法: ./dev.sh promote <用户名>}"
+    ;;
+  demote)
+    "${DC[@]}" exec -T app python -m app.cli demote "${2:?用法: ./dev.sh demote <用户名>}"
+    ;;
+  users)  "${DC[@]}" exec -T app python -m app.cli list ;;
   shell)  "${DC[@]}" exec app bash ;;
   dbshell) "${DC[@]}" exec postgres psql -U retouch -d retouch ;;
   smoke)
@@ -106,6 +113,9 @@ AI 修图智能体 · 本地运维脚本
   ps        查看容器状态
   logs [服务]  跟踪日志，默认 app（可选 worker/minio/postgres/redis）
   migrate   执行 Alembic 迁移
+  promote   把某个已注册用户提升为管理员
+  demote    把管理员降回普通用户（唯一管理员不允许降级）
+  users     列出全部用户及其角色
   shell     进入 app 容器
   dbshell   进入 PostgreSQL 命令行
   smoke     跑端到端冒烟验证（23 项）

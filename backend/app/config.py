@@ -30,6 +30,14 @@ class Settings(BaseSettings):
     jwt_secret: str = "dev-only-secret-please-change-in-production"
     jwt_ttl_hours: int = 24
 
+    # 注册时命中该白名单的用户直接成为管理员，逗号分隔。公网部署建议留空，
+    # 改用 `./dev.sh promote <用户名>` 手工提升。
+    admin_usernames: str = ""
+
+    # llm_configs 密钥列的 Fernet 加密密钥（32 字节 base64）。
+    # 留空则从 JWT_SECRET 派生并打 WARN 日志；生产环境建议配置独立密钥。
+    settings_encryption_key: str = ""
+
     # image provider: mock | dashscope | openai
     image_provider: str = "mock"
     dashscope_api_key: str = ""
@@ -63,6 +71,10 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.app_env == "production"
+
+    @property
+    def admin_username_set(self) -> frozenset[str]:
+        return frozenset(name.strip() for name in self.admin_usernames.split(",") if name.strip())
 
     @property
     def frontend_dist(self) -> Path:

@@ -9,7 +9,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app import storage
 from app.config import get_settings
 from app.queue import close_queue
-from app.routers import assets, auth, batches, events, health, runs, sessions
+from app.routers import admin, assets, auth, batches, events, health, me, runs, sessions
 
 settings = get_settings()
 
@@ -50,10 +50,12 @@ app = FastAPI(
 api = APIRouter(prefix="/api")
 api.include_router(health.router)
 api.include_router(auth.router)
+api.include_router(me.router)
 api.include_router(assets.router)
 api.include_router(runs.router)
 api.include_router(sessions.router)
 api.include_router(batches.router)
+api.include_router(admin.router)
 app.include_router(api)
 
 # SSE 不挂在 /api 下，便于反向代理单独关闭缓冲

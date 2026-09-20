@@ -10,7 +10,7 @@ from app.config import get_settings
 from app.db import SessionFactory
 from app.main import app
 from app.models import User
-from app.providers import get_image_provider
+from app.services import llm_config
 from app.queue import close_queue
 from app.storage import ensure_bucket
 
@@ -29,10 +29,10 @@ def mock_provider():
     """测试一律走占位图实现，不受本机 IMAGE_PROVIDER 配置影响，也不产生调用费用。"""
     settings = get_settings()
     original, settings.image_provider = settings.image_provider, "mock"
-    get_image_provider.cache_clear()
+    llm_config.invalidate()
     yield
     settings.image_provider = original
-    get_image_provider.cache_clear()
+    llm_config.invalidate()
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -74,6 +74,30 @@ async def client():
     transport = ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
+
+
+@pytest.fixture
+async def second_client():
+    """第二个独立会话。同一个 client 重复注册会覆盖 cookie，跨用户场景必须分开。"""
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+
+
+@pytest.fixture
+async def admin_client(credentials):
+    """独立会话的管理员客户端，经 ADMIN_USERNAMES 白名单这条真实注册通道产生。"""
+    settings = get_settings()
+    original, settings.admin_usernames = settings.admin_usernames, credentials["username"]
+    try:
+        transport = ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            response = await c.post("/api/auth/register", json=credentials)
+            assert response.status_code == 201, response.text
+            assert response.json()["role"] == "admin"
+            yield c
+    finally:
+        settings.admin_usernames = original
 
 
 def _credentials() -> dict[str, str]:

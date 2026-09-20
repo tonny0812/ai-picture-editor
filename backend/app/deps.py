@@ -3,11 +3,12 @@ from typing import Annotated
 from fastapi import Cookie, Depends, HTTPException, status
 
 from app.db import SessionDep
-from app.models import User
+from app.models import Role, User
 from app.security import SESSION_COOKIE, read_token
 from app.services import auth as auth_service
 
 _UNAUTHENTICATED = HTTPException(status.HTTP_401_UNAUTHORIZED, "未登录或会话已过期")
+_ADMIN_ONLY = HTTPException(status.HTTP_403_FORBIDDEN, "需要管理员权限")
 
 
 async def current_user(
@@ -28,3 +29,13 @@ async def current_user(
 
 
 CurrentUser = Annotated[User, Depends(current_user)]
+
+
+async def require_admin(user: CurrentUser) -> User:
+    """管理员闸门。所有 /api/admin/* 必须挂此依赖，前端路由守卫只算体验层。"""
+    if user.role != Role.ADMIN:
+        raise _ADMIN_ONLY
+    return user
+
+
+AdminUser = Annotated[User, Depends(require_admin)]

@@ -20,7 +20,7 @@ import io
 import httpx
 from PIL import Image
 
-from app.config import get_settings
+from app.llm_config import ResolvedLlmConfig
 from app.providers.base import (
     EditRequest,
     GenerateRequest,
@@ -38,20 +38,19 @@ _DOWNLOAD_TIMEOUT = 60.0
 class OpenAIImagesProvider(ImageProvider):
     name = "openai"
 
-    def __init__(self) -> None:
-        settings = get_settings()
-        base_url = settings.images_base_url or settings.planner_base_url
-        api_key = settings.images_api_key or settings.planner_api_key
+    def __init__(self, config: ResolvedLlmConfig) -> None:
+        base_url = config.images_base_url
+        api_key = config.images_api_key
         if not base_url or not api_key:
             raise ProviderError(
                 "未配置图像网关：请填写 IMAGES_BASE_URL / IMAGES_API_KEY（或 PLANNER_*）"
             )
-        if not settings.images_model:
+        if not config.images_model:
             raise ProviderError("未配置 IMAGES_MODEL，无法指定生图模型")
 
         self._base = base_url.rstrip("/")
-        self._model = settings.images_model
-        self._sizes = parse_sizes(settings.images_sizes)
+        self._model = config.images_model
+        self._sizes = parse_sizes(config.images_sizes)
         self._client = httpx.AsyncClient(
             headers={"Authorization": f"Bearer {api_key}"}, timeout=_TIMEOUT
         )

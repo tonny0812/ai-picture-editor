@@ -3,11 +3,8 @@ from functools import lru_cache
 from langchain_core.utils.function_calling import convert_to_openai_function
 from langchain_openai import ChatOpenAI
 
-from app.config import get_settings
+from app.llm_config import ResolvedLlmConfig
 from app.tools import SPECS, ToolSpec
-
-# 图像模型必须走 DashScope 原生接口，纯文本的规划模型可用 OpenAI 兼容模式
-_COMPATIBLE_PATH = "/compatible-mode/v1"
 
 
 class PlannerUnavailable(Exception):
@@ -28,31 +25,23 @@ def _schema_of(spec: ToolSpec) -> dict:
     return {"type": "function", "function": function}
 
 
-@lru_cache
-def planner():
-    """绑定全部已注册工具的规划模型。工具增减无需改动此处。
+@lru_cache(maxsize=16)
+def get_planner(config: ResolvedLlmConfig):
+    """绑定全部已注册工具的规划模型，以配置为缓存键。
 
-    base_url 支持任意 OpenAI 兼容网关：配置 PLANNER_BASE_URL 后原样使用
-    （需自带 /v1 前缀），否则回退百炼的 compatible-mode 路径。
-    API key 同理：PLANNER_API_KEY 优先，缺失再退回 DASHSCOPE_API_KEY。
+    配置热生效的关键：页面改配置 → resolve 产生新 ResolvedLlmConfig →
+    本函数缓存未命中 → 按新配置实例化。base_url / key 的兜底链已在
+    配置解析层（services/llm_config._finalize）完成。
     """
-    settings = get_settings()
-    api_key = settings.planner_api_key or settings.dashscope_api_key
-    if not api_key:
-        raise PlannerUnavailable(
-            "未配置 PLANNER_API_KEY / DASHSCOPE_API_KEY，对话指令不可用"
-        )
-
-    base_url = settings.planner_base_url or (
-        f"{settings.dashscope_base_url}{_COMPATIBLE_PATH}"
-    )
+    if not config.planner_api_key:
+        raise PlannerUnavailable("未配置规划模型 API Key，对话指令不可用")
 
     model = ChatOpenAI(
-        model=settings.planner_model,
-        api_key=api_key,
-        base_url=base_url,
+        model=config.planner_model,
+        api_key=config.planner_api_key,
+        base_url=config.planner_base_url,
         temperature=0,
-        timeout=settings.planner_timeout,
-        max_retries=settings.planner_max_retries,
+        timeout=config.planner_timeout,
+        max_retries=config.planner_max_retries,
     )
     return model.bind_tools([_schema_of(spec) for spec in SPECS])

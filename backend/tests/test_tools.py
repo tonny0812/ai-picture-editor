@@ -183,7 +183,7 @@ async def test_agent_can_dispatch_a_canvas_tool(signed_in: httpx.AsyncClient, mo
             tool_calls=[{"name": "flip_layer", "args": {"direction": "horizontal"}, "id": "c1"}],
         )
     )
-    monkeypatch.setattr(graph, "planner", lambda: fake)
+    monkeypatch.setattr(graph, "get_planner", lambda config: fake)
     session_id = (await open_session(signed_in))["id"]
 
     turn = (

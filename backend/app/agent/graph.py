@@ -4,8 +4,9 @@ from typing import TypedDict
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.graph import END, START, StateGraph
 
-from app.agent.llm import planner
+from app.agent.llm import get_planner
 from app.agent.plan import PlanError, validate
+from app.llm_config import ResolvedLlmConfig
 from app.services import tools as tool_service
 from app.tools import UnknownTool, label_of
 
@@ -47,10 +48,11 @@ class AgentState(TypedDict):
     context: str
     plan: list[dict]
     reply: str
+    config: ResolvedLlmConfig
 
 
 async def _plan(state: AgentState) -> AgentState:
-    message = await planner().ainvoke(
+    message = await get_planner(state["config"]).ainvoke(
         [
             SystemMessage(_SYSTEM.format(context=state["context"])),
             HumanMessage(state["goal"]),
