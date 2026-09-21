@@ -57,6 +57,7 @@ case "${1:-help}" in
     "${DC[@]}" exec -T app python -m app.cli demote "${2:?用法: ./dev.sh demote <用户名>}"
     ;;
   users)  "${DC[@]}" exec -T app python -m app.cli list ;;
+  seed)   "${DC[@]}" exec -T app python -m app.cli seed-prompts ;;
   shell)  "${DC[@]}" exec app bash ;;
   dbshell) "${DC[@]}" exec postgres psql -U retouch -d retouch ;;
   smoke)
@@ -66,6 +67,9 @@ case "${1:-help}" in
     ;;
   test)
     in_container "uv run pytest -q"
+    # 提示词库的测试夹具会整表清空（含内置模板），跑完顺手把种子补回去，
+    # 否则创作页的模板入口是空的。
+    "${DC[@]}" exec -T app python -m app.cli seed-prompts >/dev/null 2>&1
     ;;
   lint)
     in_container "uv run ruff check app tests"
