@@ -58,7 +58,10 @@ async def execute(session: AsyncSession, run: ToolRun) -> None:
         await runs.start(session, run)
         result = await spec.handler(session, run)
         await _record(session, run, result)
-    except (ProviderError, UnknownTool, ToolError) as exc:
+    except ProviderError as exc:
+        # 模型侧的错误带上网关原文与排查建议，否则用户只看到一句 "upstream 400"
+        await runs.finish(session, run, status=RunStatus.FAILED, error=exc.report)
+    except (UnknownTool, ToolError) as exc:
         await runs.finish(session, run, status=RunStatus.FAILED, error=str(exc))
     except Exception:
         logger.exception("工具执行异常 tool=%s run_id=%s", run.tool, run.id)

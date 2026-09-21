@@ -13,16 +13,22 @@
 
 网关通常只认固定尺寸档位（如 1536x1024）。配置 IMAGES_SIZES 后按最近比例
 选档，下载后中心裁切并缩放回目标尺寸，保证与项目"素材即画布尺寸"的约定一致。
+
+出错时不做"吞掉细节"的处理：网关返回什么就原样带出来（状态码、原文、
+请求摘要、排查建议），写进任务失败原因里给用户看。聚合网关常把上游错误
+压缩成一句 "upstream 400"，只把这句话丢给用户等于没有信息。
 """
 
 import asyncio
 import base64
 import io
+import json
 import logging
 
 import httpx
 from PIL import Image
 
+from app.config import get_settings
 from app.llm_config import ResolvedLlmConfig
 from app.providers.base import (
     EditRequest,
@@ -36,6 +42,23 @@ _GENERATIONS = "/images/generations"
 _EDITS = "/images/edits"
 _TIMEOUT = 300.0
 _DOWNLOAD_TIMEOUT = 60.0
+# 这些状态码重试有意义（限流与瞬时故障）；400 属于请求本身有问题，重试无用
+_RETRY_STATUS = frozenset({408, 429, 500, 502, 503, 504})
+_RETRY_BACKOFF = 2.0
+
+_STATUS_HINT = {
+    400: "提示词可能触发上游内容策略、含不支持的参数，或请求过大。可依次尝试：缩短提示词、去掉"
+    "（xx：1.2）这类权重语法、张数调成 1、换个尺寸档位。若网关原文只有一句"
+    "「upstream 400」，多半是上游限并发或瞬时故障，稍后重试通常能过。",
+    401: "API Key 无效或已过期，检查设置页里的密钥。",
+    403: "API Key 没有该模型的权限，或账户被限制。",
+    404: "模型名不存在，或该端点不被网关支持，检查模型名与网关地址。",
+    413: "请求体过大（参考图可能太大），换更小的图重试。",
+    422: "参数不被接受，常见是尺寸档位不支持，检查 IMAGES_SIZES 配置。",
+    429: "触发限流：减少同时生成的张数，或把 IMAGES_MAX_CONCURRENCY 调成 1 后重试。",
+}
+
+logger = logging.getLogger(__name__)
 
 logger = logging.getLogger(__name__)
 
@@ -53,9 +76,12 @@ class OpenAIImagesProvider(ImageProvider):
         if not config.images_model:
             raise ProviderError("未配置 IMAGES_MODEL，无法指定生图模型")
 
+        settings = get_settings()
         self._base = base_url.rstrip("/")
         self._model = config.images_model
         self._sizes = parse_sizes(config.images_sizes)
+        self._gate = asyncio.Semaphore(max(1, settings.images_max_concurrency))
+        self._retries = max(0, settings.images_max_retries)
         self._client = httpx.AsyncClient(
             headers={"Authorization": f"Bearer {api_key}"}, timeout=_TIMEOUT
         )
@@ -119,15 +145,43 @@ class OpenAIImagesProvider(ImageProvider):
         return {"model": self._model, "prompt": text, "n": 1}
 
     async def _images_once(self, path: str, payload: dict) -> list[bytes]:
-        data = await self._post(path, payload)
+        async with self._gate:
+            data = await self._post(path, payload)
         return await self._extract_all(data)
 
     async def _post(self, path: str, payload: dict) -> dict:
-        try:
-            response = await self._client.post(self._base + path, json=payload)
-        except httpx.HTTPError as exc:
-            raise ProviderError(f"图像网关连接失败（{path}）：{exc}") from exc
-        return parse_response(response)
+        brief = _brief(path, payload)
+        last: ProviderError | None = None
+        for attempt in range(self._retries + 1):
+            try:
+                response = await self._client.post(self._base + path, json=payload)
+            except httpx.HTTPError as exc:
+                last = ProviderError(
+                    f"图像网关连接失败（{path}）",
+                    _detail_lines(
+                        brief, "", f"{type(exc).__name__}: {exc}", "检查网关地址与网络连通性。"
+                    ),
+                )
+                if attempt == self._retries:
+                    raise last from exc
+                await asyncio.sleep(_RETRY_BACKOFF * (attempt + 1))
+                continue
+
+            try:
+                return parse_response(response, brief)
+            except ProviderError as exc:
+                last = exc
+                if response.status_code not in _RETRY_STATUS or attempt == self._retries:
+                    raise
+                logger.warning(
+                    "图像网关 HTTP %d，第 %d/%d 次重试：%s",
+                    response.status_code,
+                    attempt + 1,
+                    self._retries,
+                    exc.message,
+                )
+                await asyncio.sleep(_RETRY_BACKOFF * (attempt + 1))
+        raise last if last else ProviderError("图像网关请求失败")
 
     async def _extract_all(self, data: dict) -> list[bytes]:
         """取出响应里的全部图片并保持顺序。
@@ -221,25 +275,107 @@ def decode_base64(encoded: str) -> bytes:
         raise ProviderError("图像网关返回的 base64 无法解码") from exc
 
 
-def parse_response(response: httpx.Response) -> dict:
-    try:
-        body = response.json()
-    except ValueError as exc:
-        raise ProviderError(
-            f"图像网关返回非 JSON 响应（HTTP {response.status_code}）"
-        ) from exc
+def parse_response(response: httpx.Response, brief: str = "") -> dict:
+    """解析网关响应；任何失败都抛出带完整上下文的 ProviderError。"""
+    raw = response.text
+    status = response.status_code
 
-    if response.status_code != httpx.codes.OK:
-        detail = body.get("error", {}).get("message") if isinstance(body, dict) else None
+    if status != httpx.codes.OK:
+        raise build_upstream_error(status, raw, brief)
+
+    body = _loads(raw)
+    if body is None:
         raise ProviderError(
-            detail or str(body)[:200] or f"图像网关错误 HTTP {response.status_code}"
+            "图像网关返回非 JSON 响应",
+            _detail_lines(brief, raw, "", "响应不是 JSON，通常是网关故障或地址配错。"),
         )
     if isinstance(body, dict) and body.get("error"):
-        message = body["error"]
-        raise ProviderError(
-            message.get("message") if isinstance(message, dict) else str(message)
-        )
+        raise build_upstream_error(status, raw, brief)
     return body
+
+
+def build_upstream_error(status: int, raw: str, brief: str = "") -> ProviderError:
+    """把网关错误组装成「一句话摘要 + 排查详情」。"""
+    body = _loads(raw)
+    if body is None:
+        text = (raw or "").strip()
+        message = f"非 JSON 响应：{text[:120]}" if text else "空响应"
+    else:
+        message = _extract_message(body) or _compact(body) or f"HTTP {status}"
+    summary = f"图像网关返回 HTTP {status}：{message}"
+    hint = _STATUS_HINT.get(status) or _default_hint(status)
+    return ProviderError(summary, _detail_lines(brief, raw, "", hint))
+
+
+def _default_hint(status: int) -> str:
+    if status >= 500:
+        return "上游服务异常，通常是暂时故障，稍后重试；持续失败请把上面的网关原文发给网关管理员。"
+    return "请求被网关拒绝，请对照上面的网关原文检查提示词或参数。"
+
+
+def _detail_lines(brief: str, raw: str, error: str, hint: str) -> str:
+    lines: list[str] = []
+    if brief:
+        lines.append(f"请求摘要：{brief}")
+    text = (raw or "").strip()
+    if text:
+        lines.append(f"网关原文：{_truncate(text, 800)}")
+    if error:
+        lines.append(f"错误信息：{_truncate(error, 400)}")
+    if hint:
+        lines.append(f"排查建议：{hint}")
+    return "\n".join(lines)
+
+
+def _brief(path: str, payload: dict) -> str:
+    return (
+        f"POST {path} · 模型 {payload.get('model')} · 尺寸 {payload.get('size', '未指定')} · "
+        f"提示词 {len(payload.get('prompt') or '')} 字 · 张数 {payload.get('n')} · "
+        f"{'带参考图' if payload.get('image') else '无参考图'}"
+    )
+
+
+def _loads(raw: str) -> object | None:
+    try:
+        return json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+
+
+def _compact(body: object) -> str:
+    try:
+        return _truncate(json.dumps(body, ensure_ascii=False), 160)
+    except (TypeError, ValueError):
+        return ""
+
+
+def _extract_message(body: object) -> str:
+    """从各家网关五花八门的响应结构里掏出一句人话。"""
+    if isinstance(body, str) and body.strip():
+        return body.strip()
+    if not isinstance(body, dict):
+        return ""
+
+    error = body.get("error")
+    if isinstance(error, str) and error.strip():
+        return error.strip()
+    if isinstance(error, dict):
+        for key in ("message", "msg", "detail"):
+            value = error.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        code = error.get("code") or error.get("type")
+        return str(code) if code else ""
+    for key in ("message", "msg", "detail", "error_description"):
+        value = body.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _truncate(text: str, limit: int) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= limit else f"{text[:limit]}…（已截断）"
 
 
 def parse_sizes(text: str) -> list[tuple[int, int]]:

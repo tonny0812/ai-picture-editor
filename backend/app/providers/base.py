@@ -6,7 +6,21 @@ ProgressCallback = Callable[[int, str], Awaitable[None]]
 
 
 class ProviderError(Exception):
-    """模型服务不可用或返回失败。"""
+    """模型服务不可用或返回失败。
+
+    `args[0]` 是给用户看的一句话摘要；detail 是排查上下文（上游状态码、
+    原始响应、请求摘要、排查建议），两者会一起写进任务失败原因里。
+    """
+
+    def __init__(self, message: str, detail: str | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.detail = detail
+
+    @property
+    def report(self) -> str:
+        """摘要 + 详情，用于落库和展示。"""
+        return f"{self.message}\n{self.detail}" if self.detail else self.message
 
 
 @dataclass(frozen=True)

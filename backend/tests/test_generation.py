@@ -156,3 +156,32 @@ async def test_progress_stream_rejects_other_users_run(
     await client.post("/api/auth/register", json=other_credentials)
 
     assert (await client.get(f"/events/runs/{run_id}")).status_code == 404
+
+
+async def test_failure_surfaces_upstream_detail(signed_in: httpx.AsyncClient, monkeypatch):
+    """网关只回一句 upstream 400 时，用户看到的不能只有这一句。"""
+    from app.providers.base import ProviderError
+
+    async def boom(session, user_id):
+        raise ProviderError(
+            "图像网关返回 HTTP 400：upstream 400",
+            "请求摘要：POST /images/generations · 模型 hunyuan-image-alpha\n"
+            '网关原文：{"error":{"message":"upstream 400"}}\n'
+            "排查建议：缩短提示词后重试",
+        )
+
+    monkeypatch.setattr("app.services.generation.provider_for", boom)
+    run_id = uuid.UUID((await start_run(signed_in, count=1))["id"])
+
+    async with SessionFactory() as session:
+        await run_tool({}, run_id)
+        run = await runs.load(session, run_id)
+
+    assert run.status is RunStatus.FAILED
+    assert "upstream 400" in run.error
+    assert "网关原文" in run.error
+    assert "排查建议" in run.error
+
+    body = (await signed_in.get(f"/api/runs/{run_id}")).json()
+    assert body["status"] == "failed"
+    assert "网关原文" in body["error"]

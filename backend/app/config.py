@@ -62,6 +62,12 @@ class Settings(BaseSettings):
     # 网关接受的尺寸档位，逗号分隔，如 "1024x1024,1536x1024,1024x1536"。
     # 配置后按最近比例选档、下载后中心裁切回目标尺寸；留空则按请求尺寸直传。
     images_sizes: str = ""
+    # 一次要 N 张时的并发上限。聚合网关普遍限并发，同时打出 4 个请求常被上游
+    # 判为超限（表现为 400 或 429）。默认 2：够快又不至于触发限流。
+    images_max_concurrency: int = 2
+    # 429 / 5xx 的自动重试次数（不含首次请求）。400 不重试——参数或内容有问题，
+    # 重试没意义，直接把网关原文报给用户。
+    images_max_retries: int = 2
 
     # auto：有 rembg 用 rembg，否则四角抠图；测试强制 corner 以免下载模型
     matting_provider: str = "auto"

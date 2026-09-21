@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import type { Asset } from '@/api/assets'
+import ErrorDetail, { errorSummary } from '@/components/ErrorDetail'
 import ProgressBar from '@/components/ui/ProgressBar'
 import { useRun } from '@/hooks/useRun'
 import { useCreateSession } from '@/hooks/useSessions'
@@ -31,7 +32,8 @@ export default function CandidatesPage() {
 
   if (status === 'failed' || status === 'canceled') {
     return (
-      <Centered title="生成失败" hint={error ?? '未知原因'}>
+      <Centered title="生成失败" hint={errorSummary(error) || '未知原因'}>
+        <ErrorDetail error={error} />
         <Link
           to="/create"
           className="bg-ink hover:bg-dark rounded-control mt-5 px-4 py-2 text-sm font-medium text-white"

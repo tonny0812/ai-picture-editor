@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { isTerminal } from '@/api/runs'
+import { errorSummary } from '@/components/ErrorDetail'
 import {
   sessionsApi,
   type SessionCreateInput,
@@ -123,7 +124,8 @@ export function useSessionTools(id: string) {
     void queryClient.invalidateQueries({ queryKey: detailKey(id) })
     void queryClient.invalidateQueries({ queryKey: historyKey(id) })
     if (live.status === 'failed') {
-      toast(live.error || '处理失败', 'danger')
+      // 错误可能带多行排查详情，提示条只播首行，完整内容由页面上的错误卡片展示
+      toast(errorSummary(live.error) || '处理失败', 'danger')
       return
     }
     const label = toolLabel(pendingTool)
