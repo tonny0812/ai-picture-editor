@@ -75,7 +75,8 @@ async def replace_background_exec(session: AsyncSession, run: ToolRun) -> dict:
         ),
         on_progress=lambda progress, stage: _progress(session, run, progress, stage),
     )
-    if run.params["count"] > 1 or wall_only:
+    if len(images) > 1 or wall_only:
+        # 多张候选（含网关一次多返回的情况）不自动上画布，由用户点选图片墙采用
         await runs.report(session, run, 95, "候选已加入图片墙，点选采用")
         return await _store(session, run, images, adopt_first=False)
     kind = AssetKind.BACKGROUND if target.id == BACKGROUND_LAYER_ID else AssetKind.GENERATED
@@ -116,6 +117,7 @@ REPLACE_BACKGROUND = ToolSpec(
     description=(
         "按文字描述替换背景。未拆层时写回画布；已拆层时拍平生成整图只进图片墙。"
         "一次可出 1 到 4 张候选；多于一张时不自动上画布，用户点选图片墙采用。"
+        "部分网关一次调用会返回多张，同样全部作为候选。"
     ),
     params=ReplaceBackgroundIn,
     handler=replace_background_exec,

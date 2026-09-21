@@ -45,6 +45,36 @@ async def test_worker_produces_requested_number_of_candidates(signed_in: httpx.A
     assert {(c["width"], c["height"]) for c in body["candidates"]} == {(1080, 1350)}
 
 
+async def test_gateway_returning_extra_images_keeps_them_all(
+    signed_in: httpx.AsyncClient, monkeypatch
+):
+    """请求 1 张但网关一次回 2 张：两张都要落成候选，不能丢图。"""
+    import io
+
+    from PIL import Image
+
+    def png(color) -> bytes:
+        buffer = io.BytesIO()
+        Image.new("RGB", (320, 240), color).save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    class _TwoImages:
+        name = "stub"
+
+        async def generate(self, request, on_progress=None):
+            return [png((10, 120, 200)), png((200, 120, 10))]
+
+    async def fake_provider_for(session, user_id):
+        return _TwoImages()
+
+    monkeypatch.setattr("app.services.generation.provider_for", fake_provider_for)
+    run_id = uuid.UUID((await start_run(signed_in, count=1))["id"])
+    await run_tool({}, run_id)
+
+    body = (await signed_in.get(f"/api/runs/{run_id}")).json()
+    assert len(body["candidates"]) == 2
+
+
 async def test_finished_run_is_not_executed_twice(signed_in: httpx.AsyncClient):
     run_id = uuid.UUID((await start_run(signed_in, count=1))["id"])
 

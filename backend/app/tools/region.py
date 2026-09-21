@@ -65,7 +65,7 @@ async def _edit_region(session: AsyncSession, run: ToolRun, *, scoped: str, whol
             EditRequest(prompt=whole if mask is None else scoped, image=source),
             on_progress=lambda progress, stage: runs.report(session, run, progress, stage),
         )
-    )[0]
+    )[0]  # 局部编辑要合并回图层，只取首张；多候选语义不适用于选区操作
     await runs.report(session, run, 85, "合并结果")
     output = apply_masked(source, edited, local_mask)
     await selections.clear(record.id)

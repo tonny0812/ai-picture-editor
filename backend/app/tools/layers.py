@@ -61,7 +61,7 @@ async def _fill_hole(session: AsyncSession, run: ToolRun, source: bytes, mask: b
             EditRequest(prompt=_RECONSTRUCT, image=prepared),
             on_progress=lambda progress, stage: runs.report(session, run, progress, stage),
         )
-    )[0]
+    )[0]  # 补洞结果要贴回图层，只取首张
     return apply_masked(prepared, edited, hole)
 
 

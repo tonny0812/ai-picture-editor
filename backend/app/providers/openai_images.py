@@ -7,7 +7,9 @@
 两点约定：
 - 不做端点间静默回退。图生图失败时明确抛错并说明原因，避免"看起来改了
   图、实际是重新生成"的假成功。
-- 数量 n 拆成 n 个 n=1 的请求并行发出。多数网关不支持 n>1，拆开是最稳的。
+- 一次请求可能返回多张（多数网关对 n 的支持不一致：有的忽略 n 各回多张，
+  有的把多张塞进 data 数组）。返回多少就保留多少，绝不只取第一张——
+  上层按语义决定是全进候选墙还是只取首张。
 
 网关通常只认固定尺寸档位（如 1536x1024）。配置 IMAGES_SIZES 后按最近比例
 选档，下载后中心裁切并缩放回目标尺寸，保证与项目"素材即画布尺寸"的约定一致。
@@ -16,6 +18,7 @@
 import asyncio
 import base64
 import io
+import logging
 
 import httpx
 from PIL import Image
@@ -33,6 +36,8 @@ _GENERATIONS = "/images/generations"
 _EDITS = "/images/edits"
 _TIMEOUT = 300.0
 _DOWNLOAD_TIMEOUT = 60.0
+
+logger = logging.getLogger(__name__)
 
 
 class OpenAIImagesProvider(ImageProvider):
@@ -64,9 +69,10 @@ class OpenAIImagesProvider(ImageProvider):
         size = self._pick_size(request.width, request.height)
         if size:
             payload["size"] = size
-        raws = await asyncio.gather(
-            *(self._image_once(_GENERATIONS, payload) for _ in range(request.count))
+        groups = await asyncio.gather(
+            *(self._images_once(_GENERATIONS, payload) for _ in range(request.count))
         )
+        raws = _flatten(groups, request.count)
         if on_progress:
             await on_progress(85, "处理结果")
         return [fit_image(raw, request.width, request.height) for raw in raws]
@@ -83,9 +89,10 @@ class OpenAIImagesProvider(ImageProvider):
             size = self._pick_size(request.width, request.height)
             if size:
                 payload["size"] = size
-        raws = await asyncio.gather(
-            *(self._image_once(_EDITS, payload) for _ in range(request.count))
+        groups = await asyncio.gather(
+            *(self._images_once(_EDITS, payload) for _ in range(request.count))
         )
+        raws = _flatten(groups, request.count)
         if on_progress:
             await on_progress(85, "处理结果")
         target_w = request.width or None
@@ -111,9 +118,9 @@ class OpenAIImagesProvider(ImageProvider):
         text = prompt if not negative_prompt else f"{prompt}\n避免：{negative_prompt}"
         return {"model": self._model, "prompt": text, "n": 1}
 
-    async def _image_once(self, path: str, payload: dict) -> bytes:
+    async def _images_once(self, path: str, payload: dict) -> list[bytes]:
         data = await self._post(path, payload)
-        return await self._extract(data)
+        return await self._extract_all(data)
 
     async def _post(self, path: str, payload: dict) -> dict:
         try:
@@ -122,20 +129,50 @@ class OpenAIImagesProvider(ImageProvider):
             raise ProviderError(f"图像网关连接失败（{path}）：{exc}") from exc
         return parse_response(response)
 
-    async def _extract(self, data: dict) -> bytes:
-        items = data.get("data") or data.get("choices") or []
-        if not items:
-            raise ProviderError("图像网关返回成功但没有图片数据")
-        item = items[0] if isinstance(items, list) else items
+    async def _extract_all(self, data: dict) -> list[bytes]:
+        """取出响应里的全部图片并保持顺序。
 
-        encoded = item.get("b64_json") or item.get("b64")
+        兼容三种返回形态：
+        - data/choices 数组内每项是 dict，带 b64_json / b64 / url / image_url
+        - 数组项直接是 base64 字符串（部分聚合网关如此）
+        - 数组项直接是 http 链接
+
+        个别项坏掉不影响其余结果：只要还有一张可用就返回，坏项记日志。
+        """
+        items = data.get("data") or data.get("choices") or []
+        if isinstance(items, dict):
+            items = [items]
+        if not isinstance(items, list) or not items:
+            raise ProviderError("图像网关返回成功但没有图片数据")
+
+        results = await asyncio.gather(
+            *(self._one_image(item) for item in items), return_exceptions=True
+        )
+        images = [item for item in results if isinstance(item, bytes)]
+        failures = [str(item) for item in results if isinstance(item, Exception)]
+        if not images:
+            raise ProviderError(failures[0] if failures else "图像网关返回格式无法识别")
+        if failures:
+            logger.warning(
+                "图像网关有 %d 张结果解析失败（已跳过，其余 %d 张保留）：%s",
+                len(failures),
+                len(images),
+                "；".join(failures[:3]),
+            )
+        return images
+
+    async def _one_image(self, item: object) -> bytes:
+        if isinstance(item, str):
+            text = item.strip()
+            if text.startswith(("http://", "https://")):
+                return await self._download(text)
+            return decode_base64(text)
+        if not isinstance(item, dict):
+            raise ProviderError(f"图像网关返回了无法识别的结果项：{type(item).__name__}")
+
+        encoded = item.get("b64_json") or item.get("b64") or item.get("image_base64")
         if isinstance(encoded, str) and encoded:
-            if encoded.startswith("data:image"):
-                encoded = encoded.split(",", 1)[-1]
-            try:
-                return base64.b64decode(encoded)
-            except ValueError as exc:
-                raise ProviderError("图像网关返回的 base64 无法解码") from exc
+            return decode_base64(encoded)
 
         url = item.get("url") or item.get("image_url")
         if isinstance(url, dict):
@@ -158,6 +195,30 @@ class OpenAIImagesProvider(ImageProvider):
         if not self._sizes or not width or not height:
             return None
         return pick_size(self._sizes, width, height)
+
+
+def _flatten(groups: list[list[bytes]], requested: int) -> list[bytes]:
+    """把多次请求的结果摊平。网关一次回多张时全部保留，只记一条日志说明差异。"""
+    images = [raw for group in groups for raw in group]
+    if len(images) > requested:
+        logger.info(
+            "图像网关一次返回多张：请求 %d 张，实际 %d 张，全部保留并作为候选",
+            requested,
+            len(images),
+        )
+    return images
+
+
+def decode_base64(encoded: str) -> bytes:
+    """解 base64；兼容 dataURI 前缀与缺失的 padding。"""
+    text = encoded.strip()
+    if text.startswith("data:"):
+        text = text.split(",", 1)[-1]
+    text = text.strip()
+    try:
+        return base64.b64decode(text, validate=False)
+    except (ValueError, TypeError) as exc:
+        raise ProviderError("图像网关返回的 base64 无法解码") from exc
 
 
 def parse_response(response: httpx.Response) -> dict:

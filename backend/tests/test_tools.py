@@ -239,6 +239,44 @@ async def test_replace_background_candidates_stay_on_the_wall(signed_in: httpx.A
     assert [entry["action"] for entry in entries] == ["replace_background", "create_session"]
 
 
+async def test_replace_background_keeps_extra_images_from_gateway(
+    signed_in: httpx.AsyncClient, monkeypatch
+):
+    """只请求 1 张但网关回了 2 张：两张都进图片墙，不能只写回第一张。"""
+    import io
+
+    from PIL import Image
+
+    frames = []
+    for color in ((10, 120, 200), (200, 120, 10)):
+        buffer = io.BytesIO()
+        Image.new("RGB", (320, 240), color).save(buffer, format="PNG")
+        frames.append(buffer.getvalue())
+
+    class _TwoImages:
+        name = "stub"
+
+        async def edit(self, request, on_progress=None):
+            return list(frames)
+
+    async def fake_provider_for(session, user_id):
+        return _TwoImages()
+
+    monkeypatch.setattr("app.tools.enhance.provider_for", fake_provider_for)
+
+    session = await open_session(signed_in)
+    body = await invoke(
+        signed_in, session["id"], "replace_background", {"prompt": "浅木色桌面"}
+    )
+
+    await run_tool({}, uuid.UUID(body["run"]["id"]))
+    updated = (await signed_in.get(f"/api/sessions/{session['id']}")).json()
+    generated = [asset for asset in updated["assets"] if asset["kind"] == "generated"]
+
+    assert updated["current_asset_id"] == session["current_asset_id"]
+    assert len(generated) == 2
+
+
 async def test_expand_canvas_grows_to_cover_ratio(signed_in: httpx.AsyncClient):
     session = await open_session(signed_in)
     body = await invoke(signed_in, session["id"], "expand_canvas", {"ratio": "16:9"})

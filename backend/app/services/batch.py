@@ -58,7 +58,7 @@ async def apply_op(data: bytes, operation: BatchOpIn, provider) -> list[bytes]:
         return [await provider.upscale(data, scale)]
     if operation.tool == "replace_background":
         parsed = ReplaceBackgroundIn.model_validate(operation.params)
-        return await provider.edit(
+        images = await provider.edit(
             EditRequest(
                 prompt=f"只替换背景，保持主体、光线和边缘不变。新背景：{parsed.prompt}",
                 image=data,
@@ -66,13 +66,16 @@ async def apply_op(data: bytes, operation: BatchOpIn, provider) -> list[bytes]:
                 negative_prompt=parsed.negative_prompt,
             )
         )
+        # 批量是一进一出：网关一次回多张时只取首张，产物数量与素材数量保持 1:1
+        return images[:1]
     if operation.tool == "expand_canvas":
         parsed = ExpandCanvasIn.model_validate(operation.params)
         meta = probe(data)
         width, height = cover_size(meta.width, meta.height, parsed.ratio)
-        return await provider.edit(
+        images = await provider.edit(
             EditRequest(prompt=parsed.prompt, image=data, width=width, height=height)
         )
+        return images[:1]
     if operation.tool == "prepare_delivery_sizes":
         parsed = PrepareDeliverySizesIn.model_validate(operation.params or {})
         ratios = _unique_ratios(parsed.ratios or list(DELIVERY_RATIOS))
