@@ -6,9 +6,9 @@ from app import storage
 from app.models.asset import AssetKind, AssetSource
 from app.models.tool_run import ToolRun
 from app.providers import GenerateRequest, ProviderError
-from app.services.llm_config import provider_for
 from app.ratios import Ratio, size_of
 from app.services import assets, runs
+from app.services.llm_config import provider_for
 
 
 async def _references(session: AsyncSession, run: ToolRun) -> list[bytes]:

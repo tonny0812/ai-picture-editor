@@ -535,7 +535,11 @@ async def test_connection(
         from app.providers.openai_images import parse_sizes
 
         sizes = parse_sizes(config.images_sizes)
-        size = f"{min(sizes, key=lambda s: s[0] * s[1])[0]}x{min(sizes, key=lambda s: s[0] * s[1])[1]}" if sizes else "1024x1024"
+        if sizes:
+            width, height = min(sizes, key=lambda s: s[0] * s[1])
+            size = f"{width}x{height}"
+        else:
+            size = "1024x1024"
         started = time.monotonic()
         try:
             async with httpx.AsyncClient(timeout=90, trust_env=False) as client:

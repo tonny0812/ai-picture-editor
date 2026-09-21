@@ -9,6 +9,7 @@ from app.deps import AdminUser
 from app.schemas.admin import AdminUserOut, RolePatchIn
 from app.schemas.llm_config import EffectiveView, LlmConfigIn, TestOut
 from app.services import auth as auth_service
+from app.services import crypto
 from app.services import llm_config as config_service
 
 router = APIRouter(prefix="/admin", tags=["admin"])

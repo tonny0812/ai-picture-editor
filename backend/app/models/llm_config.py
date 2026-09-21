@@ -8,12 +8,11 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     Boolean,
-    DateTime,
     ForeignKey,
     Index,
     Integer,
-    JSON,
     String,
     func,
     text,

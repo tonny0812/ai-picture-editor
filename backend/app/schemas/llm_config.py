@@ -8,8 +8,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.llm_config import PROVIDERS
-
 
 class LlmConfigIn(BaseModel):
     """PUT / llm-config 与 test 的请求体。全部字段可选。"""

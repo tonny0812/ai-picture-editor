@@ -17,8 +17,10 @@ GLOBAL = "/api/admin/llm-config"
 
 
 @pytest.fixture
-async def signed_in(client, credentials):
-    await client.post("/api/auth/register", json=credentials)
+async def signed_in(client, other_credentials):
+    """与 admin_client 同场时必须用另一套凭据——同一用户名重复注册会 409，导致后续请求 401。"""
+    response = await client.post("/api/auth/register", json=other_credentials)
+    assert response.status_code == 201, response.text
     return client
 
 
@@ -50,8 +52,12 @@ async def _set_global(**values) -> None:
 
 async def _set_user(user_id: uuid.UUID, **values) -> None:
     async with SessionFactory() as session:
-        row = LlmConfig(scope="user", user_id=user_id)
-        session.add(row)
+        row = await session.scalar(
+            select(LlmConfig).where(LlmConfig.scope == "user", LlmConfig.user_id == user_id)
+        )
+        if row is None:
+            row = LlmConfig(scope="user", user_id=user_id)
+            session.add(row)
         for key, value in values.items():
             if key.endswith("_api_key"):
                 setattr(row, key.replace("_api_key", "_api_key_enc"), crypto.encrypt_secret(value))
@@ -281,10 +287,12 @@ async def test_test_connection_accepts_draft_without_saving(signed_in):
     assert before == after
 
 
-async def test_second_user_is_not_affected_by_first_override(signed_in, second_client, other_credentials):
+async def test_second_user_is_not_affected_by_first_override(signed_in, second_client):
     """用户覆盖彼此隔离：A 覆盖不影响 B 的生效配置。"""
     await signed_in.put(ME, json={"planner_model": "a-model"})
-    await second_client.post("/api/auth/register", json=other_credentials)
+    third = {"username": f"test_{uuid.uuid4().hex[:10]}", "password": "secret123"}
+    response = await second_client.post("/api/auth/register", json=third)
+    assert response.status_code == 201, response.text
 
     body_b = (await second_client.get(ME)).json()
     assert body_b["effective"]["planner_model"] != "a-model"

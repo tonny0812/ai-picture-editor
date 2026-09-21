@@ -84,9 +84,11 @@ def _graph():
     return builder.compile()
 
 
-async def run(goal: str, context: str) -> tuple[str, list[dict]]:
-    """规划并校验一轮指令，返回答复与尚未下发的计划。"""
-    state = await _graph().ainvoke({"goal": goal, "context": context, "plan": [], "reply": ""})
+async def run(goal: str, context: str, config: ResolvedLlmConfig) -> tuple[str, list[dict]]:
+    """规划并校验一轮指令，返回答复与尚未下发的计划。config 由调用方按用户解析后传入。"""
+    state = await _graph().ainvoke(
+        {"goal": goal, "context": context, "plan": [], "reply": "", "config": config}
+    )
     return spoken(state["reply"], state["plan"]), state["plan"]
 
 

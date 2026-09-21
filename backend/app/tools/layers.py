@@ -28,8 +28,8 @@ from app.layers import BACKGROUND_LAYER_ID, LayerKind
 from app.models.asset import Asset, AssetKind, AssetSource
 from app.models.tool_run import ToolRun
 from app.providers import EditRequest
-from app.services.llm_config import provider_for
 from app.services import assets, runs, selections
+from app.services.llm_config import provider_for
 from app.tools.base import HIDDEN_MASK, MaskRef, ToolSpec
 from app.tools.context import ToolError, document_of, flatten_session, require_session
 from app.tools.target import require_selection

@@ -10,8 +10,8 @@ from app.config import get_settings
 from app.db import SessionFactory
 from app.main import app
 from app.models import User
-from app.services import llm_config
 from app.queue import close_queue
+from app.services import llm_config
 from app.storage import ensure_bucket
 
 # 测试账号统一此前缀，清理时只删这些行，避免误清开发库里的真实用户

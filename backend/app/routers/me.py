@@ -51,6 +51,9 @@ async def put_config(
 ) -> MeLlmConfigOut:
     updates = _updates_of(payload)
     if not updates:
+        # 只提交了被忽略的字段（如 lock_image_provider）：按空操作处理，直接回当前视图
+        if payload.model_fields_set:
+            return await _view(session, user.id)
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "没有需要更新的字段")
     try:
         await config_service.save_user_override(session, user.id, updates)
