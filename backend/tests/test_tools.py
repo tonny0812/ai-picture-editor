@@ -1,3 +1,4 @@
+import io
 import uuid
 
 import httpx
@@ -658,3 +659,37 @@ async def test_prepare_delivery_sizes_covers_three_ratios(signed_in: httpx.Async
     assert updated["current_asset_id"] == session["current_asset_id"]
     assert updated["revision"] == 1
     assert sizes == {(1080, 1080), (1080, 1350), (1080, 1920)}
+
+
+async def test_replace_region_passes_source_size_to_gateway(
+    signed_in: httpx.AsyncClient, monkeypatch
+):
+    """局部编辑必须把源图尺寸传给网关：否则返回图比例跑偏，贴回图层时变形失真。"""
+    from app.providers.base import EditRequest
+
+    captured: list[EditRequest] = []
+
+    class _Recorder:
+        name = "recorder"
+
+        async def edit(self, request: EditRequest, on_progress=None):
+            captured.append(request)
+            from PIL import Image as _Image
+
+            buffer = io.BytesIO()
+            _Image.new("RGB", (request.width or 1, request.height or 1), (10, 10, 10)).save(
+                buffer, format="PNG"
+            )
+            return [buffer.getvalue()]
+
+    async def fake_provider_for(session, user_id):
+        return _Recorder()
+
+    monkeypatch.setattr("app.tools.region.provider_for", fake_provider_for)
+    session = await open_session(signed_in, image=scene())
+
+    await apply(signed_in, session["id"], "replace_region", {"prompt": "改成红色"})
+
+    assert len(captured) == 1
+    request = captured[0]
+    assert (request.width, request.height) == (320, 240)

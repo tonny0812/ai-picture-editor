@@ -8,6 +8,7 @@ from app.models.tool_run import ToolRun
 from app.providers import EditRequest
 from app.ratios import Ratio, cover_size
 from app.services import assets, runs
+from app.services.images import probe
 from app.services.llm_config import provider_for
 from app.tools.base import ToolSpec
 from app.tools.context import document_of, flatten_session, require_session
@@ -65,12 +66,15 @@ async def replace_background_exec(session: AsyncSession, run: ToolRun) -> dict:
         source = await flatten_session(session, record)
     else:
         source = await layer_image(session, record, target)
+    meta = probe(source)
     await runs.report(session, run, 30, "生成新背景")
     images = await (await provider_for(session, run.user_id)).edit(
         EditRequest(
             prompt=f"只替换背景，保持主体、光线和边缘不变。新背景：{run.params['prompt']}",
             image=source,
             count=run.params["count"],
+            width=meta.width,
+            height=meta.height,
             negative_prompt=run.params.get("negative_prompt"),
         ),
         on_progress=lambda progress, stage: _progress(session, run, progress, stage),

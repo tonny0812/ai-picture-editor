@@ -29,6 +29,7 @@ from app.models.asset import Asset, AssetKind, AssetSource
 from app.models.tool_run import ToolRun
 from app.providers import EditRequest
 from app.services import assets, runs, selections
+from app.services.images import probe
 from app.services.llm_config import provider_for
 from app.tools.base import HIDDEN_MASK, MaskRef, ToolSpec
 from app.tools.context import ToolError, document_of, flatten_session, require_session
@@ -56,9 +57,10 @@ async def _fill_hole(session: AsyncSession, run: ToolRun, source: bytes, mask: b
     # 先挖空再填，模型只看到没有主体的图，避免又把主体画回背景
     hole = expand_mask(mask, Image.open(io.BytesIO(source)).size)
     prepared = await asyncio.to_thread(fill_background, source, hole)
+    meta = probe(prepared)
     edited = (
         await (await provider_for(session, run.user_id)).edit(
-            EditRequest(prompt=_RECONSTRUCT, image=prepared),
+            EditRequest(prompt=_RECONSTRUCT, image=prepared, width=meta.width, height=meta.height),
             on_progress=lambda progress, stage: runs.report(session, run, progress, stage),
         )
     )[0]  # 补洞结果要贴回图层，只取首张

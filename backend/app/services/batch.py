@@ -58,11 +58,14 @@ async def apply_op(data: bytes, operation: BatchOpIn, provider) -> list[bytes]:
         return [await provider.upscale(data, scale)]
     if operation.tool == "replace_background":
         parsed = ReplaceBackgroundIn.model_validate(operation.params)
+        meta = probe(data)
         images = await provider.edit(
             EditRequest(
                 prompt=f"只替换背景，保持主体、光线和边缘不变。新背景：{parsed.prompt}",
                 image=data,
                 count=1,
+                width=meta.width,
+                height=meta.height,
                 negative_prompt=parsed.negative_prompt,
             )
         )
