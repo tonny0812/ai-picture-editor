@@ -9,7 +9,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app import storage
 from app.config import get_settings
 from app.queue import close_queue
-from app.routers import admin, assets, auth, batches, events, health, me, runs, sessions
+from app.routers import admin, assets, auth, batches, events, health, me, prompts, runs, sessions
 
 settings = get_settings()
 
@@ -54,6 +54,7 @@ api.include_router(me.router)
 api.include_router(assets.router)
 api.include_router(runs.router)
 api.include_router(sessions.router)
+api.include_router(prompts.router)
 api.include_router(batches.router)
 api.include_router(admin.router)
 app.include_router(api)

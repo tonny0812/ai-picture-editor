@@ -13,6 +13,8 @@ export type Run = {
   stage: string
   error: string | null
   prompt: string | null
+  negative_prompt: string | null
+  ratio: string | null
   candidates: Asset[]
   result: Record<string, unknown>
 }

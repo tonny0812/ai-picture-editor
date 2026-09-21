@@ -41,6 +41,9 @@ class RunOut(BaseModel):
     stage: str
     error: str | None
     prompt: str | None = None
+    # 收进提示词库时要连排除项一起存，否则复现不出当初的效果
+    negative_prompt: str | None = None
+    ratio: str | None = None
     candidates: list[AssetOut] = []
     result: dict = {}
 
@@ -54,6 +57,8 @@ class RunOut(BaseModel):
             stage=run.stage,
             error=run.error,
             prompt=run.params.get("prompt"),
+            negative_prompt=run.params.get("negative_prompt"),
+            ratio=run.params.get("ratio"),
             candidates=candidates or [],
             result=run.result or {},
         )

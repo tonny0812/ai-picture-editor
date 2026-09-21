@@ -35,6 +35,13 @@ class ToolRun(UUIDBase):
         PgUUID(as_uuid=True), ForeignKey("edit_sessions.id", ondelete="CASCADE"), default=None
     )
     tool: Mapped[str] = mapped_column(String(48))
+    # ---- 多轮创作：run 之间用父指针串成一条轮次链 ----
+    # parent_run_id 指向上一轮；round 从 1 开始；round_note 是本轮用户的追加指令
+    parent_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("tool_runs.id", ondelete="SET NULL"), default=None
+    )
+    round: Mapped[int] = mapped_column(default=1)
+    round_note: Mapped[str | None] = mapped_column(Text, default=None)
     status: Mapped[RunStatus] = mapped_column(enum_column(RunStatus), default=RunStatus.QUEUED)
     progress: Mapped[int] = mapped_column(default=0)
     stage: Mapped[str] = mapped_column(String(64), default="")

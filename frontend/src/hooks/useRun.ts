@@ -62,6 +62,8 @@ export function useRun(runId: string | null) {
     stage: current?.stage ?? run?.stage ?? '',
     error: current?.error ?? run?.error ?? null,
     prompt: run?.prompt ?? null,
+    negativePrompt: run?.negative_prompt ?? null,
+    ratio: run?.ratio ?? null,
     candidates: run?.candidates ?? [],
     result: current?.result ?? run?.result ?? {},
     isLoading: snapshot.isPending,

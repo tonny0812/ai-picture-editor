@@ -1,8 +1,9 @@
 """运维命令行。容器内执行：
 
-    python -m app.cli promote <用户名>   # 提升为管理员
-    python -m app.cli demote <用户名>    # 降回普通用户
-    python -m app.cli list              # 列出全部用户与角色
+    python -m app.cli promote <用户名>       # 提升为管理员
+    python -m app.cli demote <用户名>        # 降回普通用户
+    python -m app.cli list                  # 列出全部用户与角色
+    python -m app.cli seed-prompts          # 写入/更新内置提示词模板（幂等）
 
 页面注册无法自证身份，管理员引导只走这里（或 .env 的 ADMIN_USERNAMES 白名单）。
 """
@@ -11,8 +12,12 @@ import argparse
 import asyncio
 import sys
 
+from sqlalchemy import select
+
 from app.db import SessionFactory
 from app.models import Role
+from app.models.prompt import PromptTemplate
+from app.seeds.prompt_templates import SEEDS
 from app.services import auth as auth_service
 
 EXIT_OK = 0
@@ -42,6 +47,30 @@ async def _set_role(username: str, role: Role) -> int:
         return EXIT_OK
 
 
+async def _seed_prompts() -> int:
+    """写入内置提示词模板。按标题 upsert：改了种子重跑一次即可同步。"""
+    added = updated = 0
+    async with SessionFactory() as session:
+        for seed in SEEDS:
+            row = await session.execute(
+                select(PromptTemplate).where(
+                    PromptTemplate.user_id.is_(None), PromptTemplate.title == seed["title"]
+                )
+            )
+            template = row.scalar_one_or_none()
+            if template is None:
+                session.add(PromptTemplate(user_id=None, **seed))
+                added += 1
+            else:
+                for key, value in seed.items():
+                    setattr(template, key, value)
+                updated += 1
+        await session.commit()
+
+    print(f"内置提示词模板：新增 {added} 个，更新 {updated} 个，共 {len(SEEDS)} 个")
+    return EXIT_OK
+
+
 async def _list_users() -> int:
     async with SessionFactory() as session:
         users = await auth_service.list_users(session)
@@ -67,6 +96,7 @@ def _parser() -> argparse.ArgumentParser:
         sub = commands.add_parser(name, help=help_text)
         sub.add_argument("username", help="已注册的用户名")
     commands.add_parser("list", help="列出全部用户及其角色")
+    commands.add_parser("seed-prompts", help="写入内置提示词模板（幂等，改了模板重跑即可）")
     return parser
 
 
@@ -77,6 +107,8 @@ async def run(argv: list[str]) -> int:
         return await _set_role(args.username, Role.ADMIN)
     if args.command == "demote":
         return await _set_role(args.username, Role.USER)
+    if args.command == "seed-prompts":
+        return await _seed_prompts()
     return await _list_users()
 
 

@@ -1,45 +1,44 @@
 import { useState } from 'react'
 
-import { RATIO_LABELS, type GenerateInput, type Ratio } from '@/api/runs'
+import { RATIO_LABELS, type Ratio } from '@/api/runs'
 
 const RATIOS = Object.keys(RATIO_LABELS) as Ratio[]
 const COUNTS = [1, 2, 4, 6]
 
+/** 表单草稿。抽出来是因为模板与提示词库都要往里回填，不能只有输入框能改。 */
+export interface GenerateDraft {
+  prompt: string
+  negative_prompt?: string
+  ratio: Ratio
+  count: number
+}
+
 export default function GenerateForm({
+  draft,
+  onChange,
   onSubmit,
   pending,
-  defaultPrompt = '',
 }: {
-  onSubmit: (input: GenerateInput) => void
+  draft: GenerateDraft
+  onChange: (draft: GenerateDraft) => void
+  onSubmit: () => void
   pending: boolean
-  defaultPrompt?: string
 }) {
-  const [prompt, setPrompt] = useState(defaultPrompt)
-  const [ratio, setRatio] = useState<Ratio>('1:1')
-  const [count, setCount] = useState(4)
-  const [negative, setNegative] = useState('')
   const [advanced, setAdvanced] = useState(false)
-
-  const canSubmit = prompt.trim().length > 0 && !pending
+  const canSubmit = draft.prompt.trim().length > 0 && !pending
 
   return (
     <form
       onSubmit={(event) => {
         event.preventDefault()
-        if (!canSubmit) return
-        onSubmit({
-          prompt: prompt.trim(),
-          ratio,
-          count,
-          negative_prompt: negative.trim() || undefined,
-        })
+        if (canSubmit) onSubmit()
       }}
       className="border-line bg-paper shadow-panel rounded-panel border p-2"
     >
       <textarea
         rows={3}
-        value={prompt}
-        onChange={(event) => setPrompt(event.target.value)}
+        value={draft.prompt}
+        onChange={(event) => onChange({ ...draft, prompt: event.target.value })}
         onKeyDown={(event) => {
           if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
             event.preventDefault()
@@ -55,14 +54,14 @@ export default function GenerateForm({
         <Segmented
           label="比例"
           options={RATIOS.map((value) => ({ value, label: value }))}
-          value={ratio}
-          onChange={setRatio}
+          value={draft.ratio}
+          onChange={(ratio) => onChange({ ...draft, ratio })}
         />
         <Segmented
           label="数量"
           options={COUNTS.map((value) => ({ value, label: String(value) }))}
-          value={count}
-          onChange={setCount}
+          value={draft.count}
+          onChange={(count) => onChange({ ...draft, count })}
         />
 
         <button
@@ -88,8 +87,8 @@ export default function GenerateForm({
       {advanced && (
         <div className="border-line animate-fade-in mt-1 border-t px-4 py-3">
           <input
-            value={negative}
-            onChange={(event) => setNegative(event.target.value)}
+            value={draft.negative_prompt ?? ''}
+            onChange={(event) => onChange({ ...draft, negative_prompt: event.target.value })}
             placeholder="不希望出现的内容，例如：文字、水印、多余的手"
             aria-label="排除项"
             className="text-ink placeholder:text-faint w-full bg-transparent text-sm outline-none"

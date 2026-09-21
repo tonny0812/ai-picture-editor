@@ -5,6 +5,7 @@ from app.models.asset import Asset
 from app.models.edit_history import EditHistory
 from app.models.edit_session import EditSession, SessionAsset
 from app.models.llm_config import LlmConfig, LlmConfigAudit
+from app.models.prompt import PromptEntry, PromptTemplate
 from app.models.tool_run import ToolRun
 from app.models.user import Role, User
 
@@ -15,6 +16,8 @@ __all__ = [
     "EditSession",
     "LlmConfig",
     "LlmConfigAudit",
+    "PromptEntry",
+    "PromptTemplate",
     "Role",
     "SessionAsset",
     "ToolRun",
