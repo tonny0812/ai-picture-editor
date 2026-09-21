@@ -183,10 +183,22 @@ images_sizes: str = ""          # 如 "1024x1024,1536x1024,1024x1536"
 访问路径：普通用户 `http://localhost:7302/settings`；管理员额外有 `/admin/llm-config`
 （导航入口仅 admin 可见）。
 
-### 4. 已知问题与验证状态
+### 4. 已修复缺陷与验证状态（2026-09-21 上线验证）
 
-- 前端 `LlmConfigForm` 的 `mutationFn` 曾因返回联合类型（`MeLlmConfig | EffectiveView`）导致
-  `tsc -b` 失败，已通过显式返回类型注解修复；
-- 本批次的**镜像重建受网络影响较慢**（`uv sync` 拉 `onnxruntime` / `torch` 等大包），
-  迁移与全量单测将在构建完成后补跑：预期 `alembic upgrade head` 应用
-  `b7d24f0a91ce → 20260920_2001_llm_configs`，随后 `./dev.sh test` 与 `./dev.sh lint`。
+本机部署实测暴露并已修复的问题：
+
+| 缺陷 | 现象 | 修复 |
+|---|---|---|
+| `uv.lock` 未同步 `pyproject` | 容器启动即崩：`ModuleNotFoundError: cryptography` | 重新生成锁文件（新增 cryptography/cffi/pycparser） |
+| `graph.run()` 签名缺 `config` | 所有 Agent 规划失败（`takes 2 positional arguments but 3 given`），22 项测试红 | 补 `config` 参数并纳入初始状态 |
+| `admin.py` 缺 `crypto` 导入 | 管理员保存全局 API Key 时 `NameError` | 补 `from app.services import crypto` |
+| 用户 PUT 只含被忽略字段 | 返回 400，语义不清 | 视为空操作，返回当前配置视图 |
+| 测试共用同一用户名 | `admin_client` 与 `signed_in` 重复注册 409，后续请求 401 | `signed_in` 改用另一套凭据 |
+| 测试 `_set_user` 重复 INSERT | 撞 `uq_llm_config_user` 唯一约束 | 改为 upsert |
+
+构建层面同样加固：`Dockerfile` 为 `uv sync` 与 `npm ci` 加 BuildKit 缓存挂载，并新增
+`UV_INDEX_URL` 构建参数以切换 PyPI 镜像源（直连不稳时用清华源）。
+
+**验证**：214 项 pytest 全绿、ruff 全部通过、23 项端到端冒烟全绿、健康检查三项 ok；
+迁移链 `b7d24f0a91ce → c3a9f1b02d47` 已在线应用。镜像重建耗时主要来自 Python 依赖与 CV 模型
+（u2net/SAM 约 290MB）下载，加了缓存挂载后重复构建会快很多。
